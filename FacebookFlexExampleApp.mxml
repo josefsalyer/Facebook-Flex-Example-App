@@ -1,0 +1,409 @@
+<?xml version="1.0" encoding="utf-8"?>
+<s:WindowedApplication xmlns:fx="http://ns.adobe.com/mxml/2009" 
+					   xmlns:s="library://ns.adobe.com/flex/spark" 
+					   xmlns:mx="library://ns.adobe.com/flex/mx"
+					   creationComplete="creationCompleteHandler(event)" 
+					   autoLayout="true"
+					   width="800" height="600" currentState="actions"
+					    height.settings="714">
+
+	<fx:Script>
+		<![CDATA[
+			import com.adobe.serialization.json.JSONDecoder;
+			
+			import flash.net.navigateToURL;
+			
+			import mx.core.FlexGlobals;
+			import mx.core.Window;
+			import mx.events.FlexEvent;
+			import mx.managers.CursorManager;
+			import mx.rpc.events.FaultEvent;
+			import mx.rpc.events.ResultEvent;
+			import mx.rpc.http.mxml.HTTPService;
+			import mx.utils.ArrayUtil;
+			import mx.utils.DisplayUtil;
+			import mx.utils.ObjectUtil;
+			
+			
+			private var html:HTMLLoader;
+			private var token:String;
+			private var user:Object;
+			
+			public static const CLIENT_ID		:String = ""; // this is your Facebook Application ID
+			
+			public static const GRAPH			:String = "https://graph.facebook.com/";
+			public static const REQUEST_TOKEN	:String = "https://graph.facebook.com/oauth/authorize";
+			public static const REDIRECT_URI	:String = "http://www.facebook.com/connect/login_success.html";  //this is a dummy page that handles the redirect after login
+			
+			//the urls for me based calls
+			public static const USER			:String = "";
+			public static const FRIENDS			:String = "/friends"; //FRIENDS
+			public static const NEWS			:String = "/home"; //NEWS FEED
+			public static const FEED			:String = "/feed"; //WALL FEED
+			public static const LIKES			:String = "/likes"; //LIKES
+			public static const MOVIES			:String = "/movies"; //MOVIES
+			public static const BOOKS			:String = "/books"; //BOOKS
+			public static const NOTES			:String = "/notes"; //NOTES
+			public static const PHOTOS			:String = "/photos"; //PHOTOS
+			public static const VIDEOS			:String = "/videos"; //VIDEOS
+			public static const EVENTS			:String = "/events"; //EVENTS
+			public static const GROUPS			:String = "/groups"; //GROUPS
+			
+			[Bindable]
+			public var actions:ArrayCollection = new ArrayCollection([USER,FRIENDS,NEWS,FEED,LIKES,MOVIES,BOOKS,NOTES,PHOTOS,VIDEOS,EVENTS,GROUPS]);
+			
+			
+			
+			protected function creationCompleteHandler(event:FlexEvent):void
+			{
+				// I'm calling authenticate manually,  
+				// Uncomment this out if you want the app to authenticate automatically
+				// 
+				//authenticate();
+			}
+			
+			protected function authenticate():void
+			{
+				var so:SharedObject = SharedObject.getLocal("facebook");
+				var savedToken:String = so.data["accessToken"];
+				
+				var options:NativeWindowInitOptions = new NativeWindowInitOptions(); 
+				var windowBounds:Rectangle = new Rectangle(10,10,1024,768);
+				
+				html 		= HTMLLoader.createRootWindow( true, options, true, windowBounds);
+				html.width 	= 1024; 
+				html.height = 768; 	
+				
+				//the type is user_agent as opposed to user-agent in the docs
+				var urlReq:URLRequest = new URLRequest(REQUEST_TOKEN + "?client_id=" + CLIENT_ID + "&redirect_uri=" + REDIRECT_URI + "&type=user_agent&display=popup" + getScope()); 
+				
+				html.load(urlReq);
+				html.addEventListener(Event.LOCATION_CHANGE, handleLocationChange);
+				
+			}
+			
+			protected function handleLocationChange(event:Event):void
+			{
+				var location:String = event.currentTarget.location;
+				
+				if ( location.search('#access_token=') > -1 ) {
+					token = location.substr(location.search('=')+1);
+					saveToken(token);
+					
+					var parent:DisplayObjectContainer = html.parent;
+					var window:NativeWindow = parent['nativeWindow'];
+						window.close();
+					
+				}
+			}
+			
+			protected function saveToken(tokenToSave:String):void
+			{
+				var so:SharedObject 	= SharedObject.getLocal("facebook");
+					so.data["accessToken"] 	= tokenToSave
+					so.flush();
+			}
+			
+
+			protected function getme(event:MouseEvent):void
+			{
+				var request:URLRequest = new URLRequest(GRAPH + "me" + "?access_token=" + token);
+					request.useCache = false;
+				var loader:URLLoader = new URLLoader(request);
+					loader.addEventListener(Event.COMPLETE, getUserResultHandler);
+					loader.addEventListener(IOErrorEvent.IO_ERROR, getUserFaultHandler);
+			}	
+			
+
+
+			protected function getUserResultHandler(event:Event):void
+			{
+				trace(event.type);
+				//store the facebook user id for later ca	
+				var decoder:JSONDecoder = new JSONDecoder(event.currentTarget.data, false);
+				user = decoder.getValue();
+				results.text = event.currentTarget.data;
+			}	
+
+
+			protected function getUserFaultHandler(event:*):void
+			{
+				trace(event.fault.content);
+			}
+			
+			protected function graph(call:String):void
+			{
+				var params:Object = new Object();
+				//params.key = ""; //this is a hack work around for flex's HTTPService
+				
+				facebook.method = "GET";
+				var t:String = buildUrl("me", call) + getToken();
+				facebook.url = t;
+				facebook.send();
+			}
+			
+			protected function friendsGraph(call:String):void
+			{
+				var params:Object = new Object();
+				//params.key = ""; //this is a hack work around for flex's HTTPService
+				
+				facebook.method = "GET";
+				var t:String = buildUrl(friends.selectedItem.id, call) + getToken(); 
+				facebook.url = t;
+				facebook.send();
+			}
+			
+			protected function buildUrl(user:String, call:String):String
+			{
+				return GRAPH + user + call;
+			}
+			
+			protected function feed(event:MouseEvent):void
+			{
+				var params:Object = new Object();
+					params.link = "http://www.amberalert.com/"; //info.text;
+					facebook.method = "POST";
+					facebook.url = GRAPH + FEED + getToken();
+					facebook.send(params);
+				
+			}
+			
+			
+			private function getToken():String
+			{
+				var result:String = "?access_token=" + token;
+				return result;
+			}
+			
+			private function getScope():String
+			{
+				var scope:String = "&scope=";
+				
+				if(publish_stream) {
+					(publish_stream.selected) ? scope = scope + 'publish_stream,' : scope = scope;
+					(create_event.selected) ? scope = scope + 'create_event,' : scope = scope;
+					(rsvp_event.selected) ? scope = scope + 'rsvp_event,' : scope = scope;
+					(sms.selected) ? scope = scope + 'sms,' : scope = scope;
+					(offline_access.selected) ? scope = scope + 'offline_access,' : scope = scope;
+					(email.selected) ? scope = scope + 'email,' : scope = scope;
+					(read_stream.selected) ? scope = scope + 'read_stream,' : scope = scope;
+					(user_about_me.selected) ? scope = scope + 'user_about_me,' : scope = scope;
+					(user_activities.selected) ? scope = scope + 'user_activities,' : scope = scope;
+					(user_birthday.selected) ? scope = scope + 'user_birthday,' : scope = scope;
+					(user_education_history.selected) ? scope = scope + 'user_education_history,' : scope = scope;
+					(user_events.selected) ? scope = scope + 'user_events,' : scope = scope;
+					(user_groups.selected) ? scope = scope + 'user_groups,' : scope = scope;
+					(user_hometown.selected) ? scope = scope + 'user_hometown,' : scope = scope;
+					(user_interests.selected) ? scope = scope + 'user_interests,' : scope = scope;
+					(user_likes.selected) ? scope = scope + 'user_likes,' : scope = scope;
+					(user_location.selected) ? scope = scope + 'user_location,' : scope = scope;
+					(user_notes.selected) ? scope = scope + 'user_notes,' : scope = scope;
+					(user_online_presence.selected) ? scope = scope + 'user_online_presence,' : scope = scope;
+					(user_photo_video_tags.selected) ? scope = scope + 'user_photo_video_tags,' : scope = scope;
+					(user_photos.selected) ? scope = scope + 'user_photos,' : scope = scope;
+					(user_relationships.selected) ? scope = scope + 'user_relationships,' : scope = scope;
+					(user_religion_politics.selected) ? scope = scope + 'user_religion_politics,' : scope = scope;
+					(user_status.selected) ? scope = scope + 'user_status,' : scope = scope;
+					(user_videos.selected) ? scope = scope + 'user_videos,' : scope = scope;
+					(user_website.selected) ? scope = scope + 'user_website,' : scope = scope;
+					(user_work_history.selected) ? scope = scope + 'user_work_history,' : scope = scope;
+					(read_friendlists.selected) ? scope = scope + 'read_friendlists,' : scope = scope;
+					(read_requests.selected) ? scope = scope + 'read_requests,' : scope = scope;
+					(friends_about_me.selected) ? scope = scope + 'friends_about_me,' : scope = scope;
+					(friends_activities.selected) ? scope = scope + 'friends_activities,' : scope = scope;
+					(friends_birthday.selected) ? scope = scope + 'friends_birthday,' : scope = scope;
+					(friends_education_history.selected) ? scope = scope + 'friends_education_history,' : scope = scope;
+					(friends_events.selected) ? scope = scope + 'friends_events,' : scope = scope;
+					(friends_groups.selected) ? scope = scope + 'friends_groups,' : scope = scope;
+					(friends_hometown.selected) ? scope = scope + 'friends_hometown,' : scope = scope;
+					(friends_interests.selected) ? scope = scope + 'friends_interests,' : scope = scope;
+					(friends_likes.selected) ? scope = scope + 'friends_likes,' : scope = scope;
+					(friends_location.selected) ? scope = scope + 'friends_location,' : scope = scope;
+					(friends_notes.selected) ? scope = scope + 'friends_notes,' : scope = scope;
+					(friends_online_presence.selected) ? scope = scope + 'friends_online_presence,' : scope = scope;
+					(friends_photo_video_tags.selected) ? scope = scope + 'friends_photo_video_tags,' : scope = scope;
+					(friends_photos.selected) ? scope = scope + 'friends_photos,' : scope = scope;
+					(friends_relationships.selected) ? scope = scope + 'friends_relationships,' : scope = scope;
+					(friends_religion_politics.selected) ? scope = scope + 'friends_religion_politics,' : scope = scope;
+					(friends_status.selected) ? scope = scope + 'friends_status,' : scope = scope;
+					(friends_videos.selected) ? scope = scope + 'friends_videos,' : scope = scope;
+					(friends_website.selected) ? scope = scope + 'friends_website,' : scope = scope;
+					(friends_work_history.selected) ? scope = scope + 'friends_work_history,' : scope = scope;
+				}
+				return (scope != "&scope=") ? scope : '';
+			}
+			
+			
+			
+			protected function resultHandler(event:Event):void
+			{
+				trace(event.type);
+				results.text = event['result'];
+				
+				//if you called get friends from graph, then this sets the array collection source to your friends
+				if(event['token'].message.url.toString().search('https://graph.facebook.com/me/friends') > -1) {
+					trace ('got friends');
+					var decoder:JSONDecoder = new JSONDecoder(event['result'], false);
+					var obj:Object = decoder.getValue();
+					friends_ac.source = ArrayUtil.toArray(obj.data);
+					friends_ac.refresh();
+				}
+			}
+			
+			protected function faultHandler(event:*):void
+			{
+				trace(event.fault);
+			}
+
+		]]>
+	</fx:Script>
+	<fx:Declarations>
+		<s:TraceTarget/>
+		<s:HTTPService id="facebook" useProxy="false" result="resultHandler(event)" fault="faultHandler(event)"  />
+		<s:ArrayCollection id="friends_ac" />
+	</fx:Declarations>
+	<s:layout>
+		<s:VerticalLayout/>
+	</s:layout>
+	<s:states>
+		<s:State name="settings" />
+		<s:State name="actions" />
+	</s:states>
+	<s:VGroup width="100%">
+		<s:HGroup>
+			<s:Button width="150" label="authenticate" click="authenticate()"/>
+			<s:Label text="this button calls the external authenticate method which pops an external window.  it will access the extended permissions below.&#xd;" width="589" height="30"/>
+		</s:HGroup>
+		<s:Button label="view available permissions" click="{this.currentState = 'settings'}"  includeIn="actions"/>
+		<s:HGroup includeIn="settings">
+			<s:VGroup width="33%">
+				<s:Button label="close" click="{this.currentState = 'actions'}" />
+				<s:Label text="Publishing Permissions" width="183" />
+				<mx:LinkButton label="More Info About Extended Permissions Here" click="navigateToURL(new URLRequest('http://developers.facebook.com/docs/authentication/permissions'), '_blank')"/>
+				<s:CheckBox id="publish_stream" 	label="Publish Stream"/>
+				<s:CheckBox id="create_event" 		label="Create Event"/>
+				<s:CheckBox id="rsvp_event" 		label="RSVP Event"/>
+				<s:CheckBox id="sms" 				label="SMS"/>
+				<s:CheckBox id="offline_access" 	label="Offline Access"/>
+			</s:VGroup>
+			<s:VGroup width="33%">
+				<s:Label text="User Data Permissions" />
+				<s:CheckBox id="email" 							label="Email"/>
+				<s:CheckBox id="read_stream" 					label="Read Streams"/>
+				<s:CheckBox id="user_about_me" 					label="User About Me"/>
+				<s:CheckBox id="user_activities" 				label="User Activites"/>
+				<s:CheckBox id="user_birthday" 					label="User Birthday"/>
+				<s:CheckBox id="user_education_history" 		label="User Education History"/>
+				<s:CheckBox id="user_events" 					label="User Events"/>
+				<s:CheckBox id="user_groups" 					label="User Groups"/>
+				<s:CheckBox id="user_hometown" 					label="User Hometown"/>
+				<s:CheckBox id="user_interests"					label="User Interests"/>
+				<s:CheckBox id="user_likes"						label="User Likes"/>
+				<s:CheckBox id="user_location"					label="User Location"/>
+				<s:CheckBox id="user_notes"						label="User Notes"/>
+				<s:CheckBox id="user_online_presence"			label="User Online Presence"/>
+				<s:CheckBox id="user_photo_video_tags"			label="User Photo/Video Tags"/>
+				<s:CheckBox id="user_photos"					label="User Photos"/>
+				<s:CheckBox id="user_relationships"				label="User Relationships"/>
+				<s:CheckBox id="user_religion_politics"			label="User Religion/Politics"/>
+				<s:CheckBox id="user_status"					label="User Current Status"/>
+				<s:CheckBox id="user_videos"					label="User Videos"/>
+				<s:CheckBox id="user_website"					label="User Websie"/>
+				<s:CheckBox id="user_work_history"				label="User Work History"/>
+				<s:CheckBox id="read_friendlists"				label="User Friend Lists"/>
+				<s:CheckBox id="read_requests"					label="User Friend Requests"/>
+			</s:VGroup>
+			<s:VGroup width="33%">
+				<s:Label text="Friends Data Permissions" />
+				<s:CheckBox id="friends_about_me" 					label="Friends About Me"/>
+				<s:CheckBox id="friends_activities" 				label="Friends Activites"/>
+				<s:CheckBox id="friends_birthday" 					label="Friends Birthday"/>
+				<s:CheckBox id="friends_education_history" 			label="Friends Education History"/>
+				<s:CheckBox id="friends_events" 					label="Friends Events"/>
+				<s:CheckBox id="friends_groups" 					label="Friends Groups"/>
+				<s:CheckBox id="friends_hometown" 					label="Friends Hometown"/>
+				<s:CheckBox id="friends_interests"					label="Friends Interests"/>
+				<s:CheckBox id="friends_likes"						label="Friends Likes"/>
+				<s:CheckBox id="friends_location"					label="Friends Location"/>
+				<s:CheckBox id="friends_notes"						label="Friends Notes"/>
+				<s:CheckBox id="friends_online_presence"			label="Friends Online Presence"/>
+				<s:CheckBox id="friends_photo_video_tags"			label="Friends Photo/Video Tags"/>
+				<s:CheckBox id="friends_photos"						label="Friends Photos"/>
+				<s:CheckBox id="friends_relationships"				label="Friends Relationships"/>
+				<s:CheckBox id="friends_religion_politics"			label="Friends Religion/Politics"/>
+				<s:CheckBox id="friends_status"						label="Friends Current Status"/>
+				<s:CheckBox id="friends_videos"						label="Friends Videos"/>
+				<s:CheckBox id="friends_website"					label="Friends Websie"/>
+				<s:CheckBox id="friends_work_history"				label="Friends Work History"/>
+			</s:VGroup>
+		</s:HGroup>
+		<s:HGroup includeIn="actions">
+			<s:Button width="150" id="getme_button" label="get me" click="getme(event)" />
+			<s:Label text="this button gets the authenticated user (i.e. the user has has authorized their app)" />
+		</s:HGroup>
+		<s:HGroup includeIn="actions">
+			<s:Button width="150" label="get friends" click="graph(FRIENDS)" />
+			<s:Label text="this button gets the friends of the current authenticated user" />
+		</s:HGroup>
+		<s:HGroup includeIn="actions">
+			<s:Button width="150" label="get home" click="graph(NEWS)" />
+			<s:Label text="this button gets the news feed of the current authenticated user" />
+		</s:HGroup>
+		<s:HGroup includeIn="actions">
+			<s:Button width="150" label="get notes" click="graph(NOTES)" />
+			<s:Label text="this button gets the notes of the current authenticated user" />
+		</s:HGroup>
+		<s:HGroup includeIn="actions">
+			<s:Button width="150" label="get feed" click="graph(FEED)" />
+			<s:Label text="this button gets the profie feed of the current authenticated user" />
+		</s:HGroup>
+		<s:HGroup includeIn="actions">
+			<s:Button width="150" label="get likes" click="graph(LIKES)" />
+			<s:Label text="this button gets the likes of the current authenticated user" />
+		</s:HGroup>
+		<s:HGroup includeIn="actions">
+			<s:Button width="150" label="get movies" click="graph(MOVIES)" />
+			<s:Label text="this button gets the movies of the current authenticated user" />
+		</s:HGroup>
+		<s:HGroup includeIn="actions">
+			<s:Button width="150" label="get books" click="graph(BOOKS)" />
+			<s:Label text="this button gets the books of the current authenticated user" />
+		</s:HGroup>
+		<s:HGroup includeIn="actions">
+			<s:Button width="150" label="get photos" click="graph(PHOTOS)" />
+			<s:Label text="this button gets the photos of the current authenticated user" />
+		</s:HGroup>
+		<s:HGroup includeIn="actions">
+			<s:Button width="150" label="get videos" click="graph(VIDEOS)" />
+			<s:Label text="this button gets the videos of the current authenticated user" />
+		</s:HGroup>
+		<s:HGroup includeIn="actions">
+			<s:Button width="150" label="get events" click="graph(EVENTS)" />
+			<s:Label text="this button gets the events of the current authenticated user" />
+		</s:HGroup>
+		<s:HGroup includeIn="actions">
+			<s:Button width="150" label="get groups" click="graph(GROUPS)" />
+			<s:Label text="this button gets the groups of the current authenticated user" />
+		</s:HGroup>
+		<s:HGroup includeIn="actions">
+			<s:Button width="150" label="get a friends" click="friendsGraph(actions_cb.selectedItem)" />
+			<s:Label text="GET" />
+			<s:ComboBox id="friends" dataProvider="{friends_ac}" labelField="name" />
+			<s:ComboBox id="actions_cb" dataProvider="{actions}" />
+			<s:Label text="this button gets the groups of the current authenticated user" />
+			
+		</s:HGroup>
+		
+		<s:HGroup includeIn="actions">
+			<s:Button width="150" label="post to facebook" click="feed(event)" />
+			<s:TextArea id="info" />
+			<s:Label text="the text entered here will be posted to your facebook account" />
+		</s:HGroup>
+	</s:VGroup>
+	
+	<s:VGroup width="100%" height="100%">
+		<s:TextArea id="results" width="100%" height="100%" />
+	</s:VGroup>
+	
+	
+</s:WindowedApplication>
